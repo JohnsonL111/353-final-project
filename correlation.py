@@ -3,6 +3,7 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import math
 from scipy import stats
 import statsmodels.api as sm
 from pyspark.sql import SparkSession, functions, types
@@ -12,7 +13,7 @@ from sklearn.impute import SimpleImputer
 # data preprocessing
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, FunctionTransformer
 from sklearn.decomposition import PCA
-from sklearn.linear_model import LinearRegression # lin reg model
+from sklearn.linear_model import LinearRegression, Ridge # lin reg model
 from sklearn.naive_bayes import GaussianNB # naive bayes classification model
 from sklearn.neighbors import KNeighborsClassifier # kneighbors classification
 from sklearn.neighbors import KNeighborsRegressor
@@ -23,7 +24,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.neural_network import MLPRegressor
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from pyspark.sql.functions import col, when
-
+from sklearn.preprocessing import PolynomialFeatures
 
 # spark = SparkSession.builder.appName('Coffee Analysis Project').getOrCreate()
 # spark.sparkContext.setLogLevel('WARN')
@@ -156,9 +157,75 @@ join['spent_assumptions'] = join['spent_assumptions'].apply(lambda x: "70" if x 
 join['spent_assumptions'] = join['spent_assumptions'].apply(lambda x: "90" if x == "$80-$100" else x)
 join['spent_assumptions'] = join['spent_assumptions'].apply(lambda x: "150" if x == ">$100" else x)
 
-# join.drop(['How many cups of coffee do you typically drink per day?'], axis=1)
+# monthly -> daily
+join['spent_assumptions'] = join['spent_assumptions'].astype(int)
+join['spent_assumptions'] = join['spent_assumptions'] / 30
+join['spent_assumptions'] = join['spent_assumptions'].astype(str)
 
+# join.drop(['How many cups of coffee do you typically drink per day?'], axis=1)
+join = join[['Submission ID', 'cup_assumptions', 'spent_assumptions']]
 join.to_csv('output.csv', index=False)
+# join1.to_csv('output1.csv', index=False)
+
+# x:  spent_assumptions
+# y:  cup_assumptions
+# setup ML pipeline
+model = make_pipeline(
+    SimpleImputer(strategy='mean'),  # Impute missing values
+    MinMaxScaler(),  # Scale features to 0-1
+    PolynomialFeatures(degree=2, include_bias=True),  # Create polynomial features
+    Ridge(alpha=1.0)  # Apply Ridge regression with regularization
+)
+
+x = join['spent_assumptions'].values.astype(float)  # Ensure values are float
+y = join['cup_assumptions'].values.astype(float)  # Ensure values are float
+X = np.stack([x], axis=1)
+X_train, X_valid, y_train, y_valid \
+    = train_test_split(X, y) # create training and validation data 75/25 split
+
+model.fit(X_train, y_train) # applies pipeline model to this data
+ridge = model.named_steps['ridge']
+coefs = ridge.coef_
+intercept = ridge.intercept_
+
+print("Coefficients: ", coefs)
+print("Intercept: ", intercept)  # Note: intercept is zero because fit_intercept=False
+print("Trainig R^2 is: ", model.score(X_train, y_train))
+print("Validation R^2 is: ", model.score(X_valid, y_valid))
+print("Trainig R is: ", math.sqrt(model.score(X_train, y_train)))
+print("Validation R is: ", math.sqrt(model.score(X_valid, y_valid)))
+
+# generate random X values for testing
+X_range = np.linspace(X.min(), X.max(), 100).reshape(-1, 1) 
+plt.plot(X_range[:, 0], model.predict(X_range), 'r-')
+
+plt.figure(figsize=(10, 6))
+
+plt.scatter(x, y, color='blue', alpha=0.5, label='Data Points')
+plt.plot(X_range[:, 0], model.predict(X_range), 'r-', label='Polynomial Regression')
+plt.title('Polynomial Regression of Cup Assumptions vs. Spent Assumptions')
+plt.xlabel('Spent Assumptions')
+plt.ylabel('Cup Assumptions')
+plt.legend()
+plt.tight_layout()
+
+# Save the plot
+plt.savefig('spent_vs_cup_assumptions_plot.png', dpi=300)
+
+plt.figure(figsize=(10, 6))
+
+jitter = 0.1 * np.random.randn(len(y)) # jitter y values 
+
+plt.scatter(x, y + jitter, color='blue', alpha=0.5, label='Data Points (jittered)')
+plt.plot(X_range[:, 0], model.predict(X_range), 'r-', label='Polynomial Regression')
+plt.title('Polynomial Regression of Cup Assumptions vs. Spent Assumptions')
+plt.xlabel('Spent Assumptions')
+plt.ylabel('Cup Assumptions')
+plt.legend()
+plt.tight_layout()
+
+# Save the plot
+plt.savefig('spent_vs_cup_assumptions_jitter_plot.png', dpi=300)
 
 
 
