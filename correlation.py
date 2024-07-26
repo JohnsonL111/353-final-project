@@ -145,11 +145,14 @@ data = pd.read_csv(data_file)
 cup = data[["Submission ID", "How many cups of coffee do you typically drink per day?"]].dropna() #THIS WORKS
 spent = data[["Submission ID", "In total, much money do you typically spend on coffee in a month?"]].dropna() #THIS WORKS
 
+# inner join on submission ID drops people that didnt answer the question
 join = pd.merge(cup, spent, how='inner', on='Submission ID')
+
+# transform cup drank per day into usable data
 join['cup_assumptions'] = join['How many cups of coffee do you typically drink per day?'].apply(lambda x: "0" if x == "Less than 1" else x)
 join['cup_assumptions'] = join['cup_assumptions'].apply(lambda x: "5" if x == "More than 4" else x)
 
-
+# transform coffee spending per month into usable data
 join['spent_assumptions'] = join['In total, much money do you typically spend on coffee in a month?'].apply(lambda x: "10" if x == "<$20" else x)
 join['spent_assumptions'] = join['spent_assumptions'].apply(lambda x: "30" if x == "$20-$40" else x)
 join['spent_assumptions'] = join['spent_assumptions'].apply(lambda x: "50" if x == "$40-$60" else x)
@@ -164,7 +167,7 @@ join['spent_assumptions'] = join['spent_assumptions'].astype(str)
 
 # join.drop(['How many cups of coffee do you typically drink per day?'], axis=1)
 join = join[['Submission ID', 'cup_assumptions', 'spent_assumptions']]
-join.to_csv('output.csv', index=False)
+join.to_csv('correlation.csv', index=False)
 # join1.to_csv('output1.csv', index=False)
 
 # x:  spent_assumptions
