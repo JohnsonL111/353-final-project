@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import math
 from scipy import stats
+from sklearn.metrics import accuracy_score
 import statsmodels.api as sm
 from pyspark.sql import SparkSession, functions, types
 from sklearn.model_selection import train_test_split
@@ -94,6 +95,7 @@ def set_other_to_average(cost_dict):
     # Set the value of 'Other' to the average
     cost_dict['Other'] = average
 
+# check report for math
 brew_method_upfront_cost = {
     'Espresso': 289.99,  # Average price for a home espresso machine
     'Coffee brewing machine (e.g. Mr. Coffee)': 190.85,  # Average price for a basic coffee brewing machine
@@ -107,8 +109,7 @@ brew_method_upfront_cost = {
     'Other': 0  # General price for unspecified methods
 }
 
-set_other_to_average(brew_method_upfront_cost)
-
+# check report for math
 brew_method_additional_cost_per_use = {
     'Espresso': 0.4975,
     'Coffee brewing machine (e.g. Mr. Coffee)': 0.4975,
@@ -122,6 +123,7 @@ brew_method_additional_cost_per_use = {
     'Other': 0 
 }
 
+set_other_to_average(brew_method_upfront_cost)
 set_other_to_average(brew_method_additional_cost_per_use)
 
 # Function to calculate the total cost based on brewing methods
@@ -158,7 +160,7 @@ join.to_csv('worth.csv', index=False)
 # 1. build a plot of
 # X: time
 # Y1: brewing at home costs (extra costs) * # cups daily (spent assumption)
-# Y2: buy outisde price daily (cup assumption) * cups daily (spent assumption)
+# Y2: cost of coffee by buying outside daily (cup assumption) * cups daily (spent assumption)
 # not worth it (no) if Y2 never exceeds Y1 else worth it (yes)
 
 join['cup_assumptions'] = pd.to_numeric(join['cup_assumptions'])
@@ -187,7 +189,94 @@ plt.legend()
 plt.savefig('worth_home.png', dpi=300)
 
 # X v Y2
+join['outside_cost'] = join['cup_assumptions'] * join["spent_assumptions"]
+X = np.arange(1, len(y) + 1).reshape(-1,1)
+y = join['outside_cost']
+
+X_train, X_valid, y_train, y_valid = train_test_split(X, y)
+model = KNeighborsRegressor(5)
+model.fit(X_train, y_train)
+print("Trainig R^2 is: ", model.score(X_train, y_train))
+print("Validation R^2 is: ", model.score(X_valid, y_valid))
+
+# Plotting the results
+plt.figure(figsize=(14, 8))
+plt.scatter(X, y, color='blue', alpha=0.5, label='Cost of buying coffee outside per day')
+plt.plot(X, model.predict(X), 'r-', label='line')
+plt.xlabel('Sample Data Points')
+plt.ylabel('Cost of buying coffee outside per day')
+plt.title('Cost of buying coffee outside per day for each sample (KNN Regression)')
+plt.legend()
+plt.savefig('worth_outside.png', dpi=300)
 
 # 2. build a neural network
 # X: [eq assumptions, spent_assumptions, cost_assumptions]
 # Y: yes (worth it to buy a coffee machine) or no (not worth it)
+
+# create new data series that has value "outside" or "inside" where "outside" means buying outside is cheaper for that individual and vice versa
+# in theory it should all be inside (null-hypothesis)
+join["result"] = join.apply(lambda row: "outside" if row['outside_cost'] > row['brewing_cost'] else "inside", axis=1)
+
+# series only for histogram display
+join['cheaper_option'] = join.apply(lambda row: 'Buying Outside is Cheaper' if row['outside_cost'] < row['brewing_cost'] else 'Brewing at Home is Cheaper', axis=1)
+
+# Count the frequency of each category
+category_counts = join['cheaper_option'].value_counts()
+
+# Create the histogram
+plt.figure(figsize=(10, 6))
+
+# Plot histogram
+plt.bar(category_counts.index, category_counts.values, color=['blue', 'green'], edgecolor='black')
+
+# Add labels and title
+plt.xlabel('Cheaper Option')
+plt.ylabel('Frequency')
+plt.title('Comparison of Cheaper Options: Buying Outside vs Brewing at Home')
+
+# Show the plot
+plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+plt.savefig('final_result.png', dpi=300)
+
+# build neural network
+# Prepare features and labels
+X = join[['outside_cost', 'brewing_cost']].values
+y = join['result'].apply(lambda x: 1 if x == 'outside' else 0).values  # Encode 'outside' as 1, 'inside' as 0
+
+# Split the data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Standardize the data
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Define the MLPClassifier model
+mlp = MLPClassifier(hidden_layer_sizes=(16, 8), max_iter=500, alpha=0.001, solver='adam', random_state=42)
+mlp = MLPClassifier(solver='lbfgs', hidden_layer_sizes=(), activation='logistic')
+mlp = MLPClassifier(solver='adam', hidden_layer_sizes=(), activation='logistic')
+
+# Train the model
+mlp.fit(X_train, y_train)
+
+# Evaluate the model
+y_pred = mlp.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+print(f'Test Accuracy: {accuracy * 100:.2f}%')
+
+# T - test
+# - 2 pop' with normal distribution (normality test)
+# - populations have same variances (equal variance test)
+# - we want to conclude that the 2 populations have diff means
+
+# normality test
+print(f'outside cost normality test p-value is: {stats.normaltest(join["outside_cost"]).pvalue}')
+print(f'brew at home cost normality test p-value is: {stats.normaltest(join["brewing_cost"]).pvalue}') 
+
+# equal variance test
+print(f'Equal variance test p-value is {stats.levene(join["outside_cost"], join["brewing_cost"]).pvalue}')
+
+# Perform mann whitney U non-parametric test due to distribution not being normal or having equal variance
+# assumes observations are independent. Requires that values are ordinal (can be sorted) which our data passes
+print(f'U-test p value is {stats.mannwhitneyu(join["outside_cost"], join["brewing_cost"],
+      alternative='two-sided').pvalue}')
