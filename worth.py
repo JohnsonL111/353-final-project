@@ -46,6 +46,7 @@ join = pd.merge(join, eq, how='inner', on='Submission ID')
 # transform cup drank per day into usable data
 join['cup_assumptions'] = join['How many cups of coffee do you typically drink per day?'].apply(lambda x: "0" if x == "Less than 1" else x)
 join['cup_assumptions'] = join['cup_assumptions'].apply(lambda x: "5" if x == "More than 4" else x)
+join['cup_assumptions'] = join['cup_assumptions'].astype(int)
 
 # transform coffee spending per month into usable data
 join['spent_assumptions'] = join['In total, much money do you typically spend on coffee in a month?'].apply(lambda x: "10" if x == "<$20" else x)
@@ -58,7 +59,6 @@ join['spent_assumptions'] = join['spent_assumptions'].apply(lambda x: "150" if x
 # monthly -> daily
 join['spent_assumptions'] = join['spent_assumptions'].astype(int)
 join['spent_assumptions'] = join['spent_assumptions'] / 30
-join['spent_assumptions'] = join['spent_assumptions'].astype(str)
 
 # More than $1,000 = $1250
 # $500-$1000 = $750
@@ -76,27 +76,74 @@ join['eq_assumptions'] = join['eq_assumptions'].apply(lambda x: "75" if x == "$5
 join['eq_assumptions'] = join['eq_assumptions'].apply(lambda x: "35" if x == "$20-$50" else x)
 join['eq_assumptions'] = join['eq_assumptions'].apply(lambda x: "10" if x == "Less than $20" else x)
 
-brew_method_prices = {
-    'Espresso': 500,  # Average price for a home espresso machine
-    'Coffee brewing machine (e.g. Mr. Coffee)': 60,  # Average price for a basic coffee brewing machine
+# merge in "how do you brew coffee at home column"
+home = data[["Submission ID", "How do you brew coffee at home?"]].dropna()
+join = pd.merge(join, home, how='inner', on='Submission ID')
+
+# Define the function to set the value of 'Other' to the average of the other keys
+def set_other_to_average(cost_dict):
+    # Calculate the sum and count of the other keys
+    total_sum = 0
+    count = 0
+    for key, value in cost_dict.items():
+        if key != 'Other':
+            total_sum += value
+            count += 1
+    # Calculate the average
+    average = total_sum / count if count > 0 else 0
+    # Set the value of 'Other' to the average
+    cost_dict['Other'] = average
+
+brew_method_upfront_cost = {
+    'Espresso': 289.99,  # Average price for a home espresso machine
+    'Coffee brewing machine (e.g. Mr. Coffee)': 190.85,  # Average price for a basic coffee brewing machine
     'Coffee extract (e.g. Cometeer)': 0,  # Not a typical home brewing method with standard equipment
-    'Other': 35,  # General price for unspecified methods
-    'Pod/capsule machine (e.g. Keurig/Nespresso)': 150,  # Average price for a pod/capsule machine
-    'Pour over': 40,  # Average price for a pour over setup
-    'French press': 50,  # Average price for a French press
-    'Cold brew': 40,  # Average price for a cold brew setup
+    'Pod/capsule machine (e.g. Keurig/Nespresso)': 89.99,  # Average price for a pod/capsule machine
+    'Pour over': 48.84,  # Average price for a pour over setup
+    'French press': 32.99,  # Average price for a French press
+    'Cold brew': 59.98,  # Average price for a cold brew setup
     'Instant coffee': 0,  # Minimal equipment cost
-    'Bean-to-cup machine': 1000,  # Average price for a bean-to-cup machine
+    'Bean-to-cup machine': 199.87,  # Average price for a bean-to-cup machine
+    'Other': 0  # General price for unspecified methods
 }
 
+set_other_to_average(brew_method_upfront_cost)
+
+brew_method_additional_cost_per_use = {
+    'Espresso': 0.4975,
+    'Coffee brewing machine (e.g. Mr. Coffee)': 0.4975,
+    'Coffee extract (e.g. Cometeer)': 5.6475,
+    'Pod/capsule machine (e.g. Keurig/Nespresso)': 0.893,
+    'Pour over': 1.30875,
+    'French press': 0.4975,
+    'Cold brew': 0.4975,
+    'Instant coffee': 0.076,
+    'Bean-to-cup machine': 0.4975,
+    'Other': 0 
+}
+
+set_other_to_average(brew_method_additional_cost_per_use)
+
 # Function to calculate the total cost based on brewing methods
-def calculate_brewing_cost(row, price_dict):
-    methods = row['How do you brew coffee at home?'].split(', ')
-    total_cost = sum(price_dict.get(method, 0) for method in methods)
-    return total_cost
+def calculate_brewing_cost(row, upfront_cost_dict, additional_cost_dict):
+    # Extract the brewing methods and the number of cups daily
+    brewing_methods = row['How do you brew coffee at home?'].split(', ')
+    cups_daily = row['cup_assumptions']
+    
+    # Find the method with the highest upfront cost
+    highest_cost_method = max(brewing_methods, key=lambda method: upfront_cost_dict.get(method, 0))
+    
+    # Get the upfront cost and additional cost per use
+    upfront_cost = upfront_cost_dict.get(highest_cost_method, 0)
+    additional_cost_per_use = additional_cost_dict.get(highest_cost_method, 0)
+    
+    # Calculate the total cost of brewing coffee per day
+    daily_cost = (upfront_cost / 365) + (additional_cost_per_use * cups_daily)
+    
+    return daily_cost
 
 # Apply the function to the dataframe
-join['brewing_cost'] = data.apply(lambda row: calculate_brewing_cost(row, brew_method_prices) if not pd.isna(row['How do you brew coffee at home?']) else 0, axis=1)
+join['brewing_cost'] = join.apply(lambda row: calculate_brewing_cost(row, brew_method_upfront_cost, brew_method_additional_cost_per_use) if not pd.isna(row['How do you brew coffee at home?']) else 0, axis=1)
 
 
 # join.drop(['How many cups of coffee do you typically drink per day?'], axis=1)
@@ -120,12 +167,7 @@ join['eq_assumptions'] = pd.to_numeric(join['eq_assumptions'])
 join['brewing_cost'] = pd.to_numeric(join['brewing_cost'])
 
 # X vs Y1
-y = []
-for index, row in join.iterrows():
-    cups_per_day = row['cup_assumptions']
-    extra_costs = row['brewing_cost']
-    cost = extra_costs * cups_per_day
-    y.append(cost)
+y = join['brewing_cost']
 X = np.arange(1, len(y) + 1).reshape(-1,1)
 
 X_train, X_valid, y_train, y_valid = train_test_split(X, y)
@@ -136,13 +178,15 @@ print("Validation R^2 is: ", model.score(X_valid, y_valid))
 
 # Plotting the results
 plt.figure(figsize=(14, 8))
-plt.scatter(X, y, color='blue', alpha=0.5, label='Cost of brewing at home on that day')
+plt.scatter(X, y, color='blue', alpha=0.5, label='Cost of brewing at home per day')
 plt.plot(X, model.predict(X), 'r-', label='line')
-plt.xlabel('Sample')
-plt.ylabel('Cost of Brewing Coffee at Home')
-plt.title('Cost of Brewing coffee at home vs. Days (KNN Regression)')
+plt.xlabel('Sample Data Points')
+plt.ylabel('Cost of Brewing Coffee at Home per day')
+plt.title('Cost of Brewing coffee at home per day for each sample (KNN Regression)')
 plt.legend()
 plt.savefig('worth_home.png', dpi=300)
+
+# X v Y2
 
 # 2. build a neural network
 # X: [eq assumptions, spent_assumptions, cost_assumptions]
