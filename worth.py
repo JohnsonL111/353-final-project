@@ -1,5 +1,6 @@
 # Imports 
 import sys
+import matplotlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -25,6 +26,7 @@ from sklearn.neural_network import MLPRegressor
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from pyspark.sql.functions import col, when
 from sklearn.preprocessing import PolynomialFeatures
+matplotlib.use('Agg')  # Use the Agg backend for non-GUI environments
 
 # cost of making coffee at home per day
 
@@ -74,20 +76,73 @@ join['eq_assumptions'] = join['eq_assumptions'].apply(lambda x: "75" if x == "$5
 join['eq_assumptions'] = join['eq_assumptions'].apply(lambda x: "35" if x == "$20-$50" else x)
 join['eq_assumptions'] = join['eq_assumptions'].apply(lambda x: "10" if x == "Less than $20" else x)
 
+brew_method_prices = {
+    'Espresso': 500,  # Average price for a home espresso machine
+    'Coffee brewing machine (e.g. Mr. Coffee)': 60,  # Average price for a basic coffee brewing machine
+    'Coffee extract (e.g. Cometeer)': 0,  # Not a typical home brewing method with standard equipment
+    'Other': 35,  # General price for unspecified methods
+    'Pod/capsule machine (e.g. Keurig/Nespresso)': 150,  # Average price for a pod/capsule machine
+    'Pour over': 40,  # Average price for a pour over setup
+    'French press': 50,  # Average price for a French press
+    'Cold brew': 40,  # Average price for a cold brew setup
+    'Instant coffee': 0,  # Minimal equipment cost
+    'Bean-to-cup machine': 1000,  # Average price for a bean-to-cup machine
+}
+
+# Function to calculate the total cost based on brewing methods
+def calculate_brewing_cost(row, price_dict):
+    methods = row['How do you brew coffee at home?'].split(', ')
+    total_cost = sum(price_dict.get(method, 0) for method in methods)
+    return total_cost
+
+# Apply the function to the dataframe
+join['brewing_cost'] = data.apply(lambda row: calculate_brewing_cost(row, brew_method_prices) if not pd.isna(row['How do you brew coffee at home?']) else 0, axis=1)
+
 
 # join.drop(['How many cups of coffee do you typically drink per day?'], axis=1)
-join = join[['Submission ID', 'cup_assumptions', 'spent_assumptions', 'eq_assumptions']]
+# cup assumption = how many cups of coffee you drink per day
+# spent assumption = how much money you spend on coffee per day
+# eq assumption = how much money do you spend on equipement per month
+join = join[['Submission ID', 'cup_assumptions', 'spent_assumptions', 'eq_assumptions', 'brewing_cost']]
 join.to_csv('worth.csv', index=False)
-
-
 
 # cost of buying coffee per day
 
 # 1. build a plot of
-#  X: time
-# Y1: coffee machine (upfront cost one time) + extra * # cups daily * X
-# Y2: buy outisde * num of cups * X
+# X: time
+# Y1: brewing at home costs (extra costs) * # cups daily (spent assumption)
+# Y2: buy outisde price daily (cup assumption) * cups daily (spent assumption)
 # not worth it (no) if Y2 never exceeds Y1 else worth it (yes)
+
+join['cup_assumptions'] = pd.to_numeric(join['cup_assumptions'])
+join['spent_assumptions'] = pd.to_numeric(join['spent_assumptions'])
+join['eq_assumptions'] = pd.to_numeric(join['eq_assumptions'])
+join['brewing_cost'] = pd.to_numeric(join['brewing_cost'])
+
+# X vs Y1
+y = []
+for index, row in join.iterrows():
+    cups_per_day = row['cup_assumptions']
+    extra_costs = row['brewing_cost']
+    cost = extra_costs * cups_per_day
+    y.append(cost)
+X = np.arange(1, len(y) + 1).reshape(-1,1)
+
+X_train, X_valid, y_train, y_valid = train_test_split(X, y)
+model = KNeighborsRegressor(5)
+model.fit(X_train, y_train)
+print("Trainig R^2 is: ", model.score(X_train, y_train))
+print("Validation R^2 is: ", model.score(X_valid, y_valid))
+
+# Plotting the results
+plt.figure(figsize=(14, 8))
+plt.scatter(X, y, color='blue', alpha=0.5, label='Cost of brewing at home on that day')
+plt.plot(X, model.predict(X), 'r-', label='line')
+plt.xlabel('Sample')
+plt.ylabel('Cost of Brewing Coffee at Home')
+plt.title('Cost of Brewing coffee at home vs. Days (KNN Regression)')
+plt.legend()
+plt.savefig('worth_home.png', dpi=300)
 
 # 2. build a neural network
 # X: [eq assumptions, spent_assumptions, cost_assumptions]
