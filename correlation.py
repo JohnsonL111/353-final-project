@@ -1,6 +1,7 @@
 # Imports 
 import sys
 import numpy as np
+import matplotlib
 import pandas as pd
 import matplotlib.pyplot as plt
 import math
@@ -25,6 +26,12 @@ from sklearn.neural_network import MLPRegressor
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from pyspark.sql.functions import col, when
 from sklearn.preprocessing import PolynomialFeatures
+matplotlib.use('Agg')  # Use the Agg backend for non-GUI environments
+
+# cost of making coffee at home per day
+
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
 
 # spark = SparkSession.builder.appName('Coffee Analysis Project').getOrCreate()
 # spark.sparkContext.setLogLevel('WARN')
@@ -303,19 +310,6 @@ plt.savefig('spent_vs_cup_assumptions_jitter_plot.png', dpi=300)
 
 # Show cleaned data
 # print(pandas_df.head(100))
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # for col in data.columns:
 #     print(col)

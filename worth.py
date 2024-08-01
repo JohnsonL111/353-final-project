@@ -171,6 +171,8 @@ join['brewing_cost'] = pd.to_numeric(join['brewing_cost'])
 # X vs Y1
 y = join['brewing_cost']
 X = np.arange(1, len(y) + 1).reshape(-1,1)
+mean_value = join['brewing_cost'].mean()
+print("the mean value is:", mean_value)
 
 X_train, X_valid, y_train, y_valid = train_test_split(X, y)
 model = KNeighborsRegressor(5)
@@ -192,6 +194,8 @@ plt.savefig('worth_home.png', dpi=300)
 join['outside_cost'] = join['cup_assumptions'] * join["spent_assumptions"]
 X = np.arange(1, len(y) + 1).reshape(-1,1)
 y = join['outside_cost']
+mean_value = join['outside_cost'].mean()
+print("the mean value is:", mean_value)
 
 X_train, X_valid, y_train, y_valid = train_test_split(X, y)
 model = KNeighborsRegressor(5)
