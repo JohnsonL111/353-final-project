@@ -226,7 +226,7 @@ join['cheaper_option'] = join.apply(lambda row: 'Buying Outside is Cheaper' if r
 
 # Count the frequency of each category
 category_counts = join['cheaper_option'].value_counts()
-
+print(category_counts)
 # Create the histogram
 plt.figure(figsize=(10, 6))
 
